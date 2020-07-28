@@ -81,7 +81,9 @@ namespace ctranslate2 {
     return clear();
   }
 
+
   StorageView& StorageView::reserve(dim_t size) {
+
     if (size <= _allocated_size)
       return *this;
     release();

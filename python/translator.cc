@@ -11,6 +11,48 @@ namespace py = pybind11;
 #  define STR_TYPE py::str
 #endif
 
+template <class T>
+void print_buffer(const std::vector<std::vector<T>> & buffer){
+    std::cout<<"Matrix:\n";
+    for (const auto & row : buffer){
+        for (const auto & n: row) {
+            std::cout << n << "|";
+        }
+        std::cout<<std::endl;
+    }
+}
+
+ctranslate2::StorageView* buffer_to_storage_view(const std::vector<std::vector<int>> & buffer, ctranslate2::Device device) {
+    ctranslate2::dim_t n_row = buffer.size();
+    ctranslate2::dim_t n_col = 0;
+    if (n_row > 0){
+        n_col = buffer.front().size();
+    }
+    ctranslate2::Shape shape = {n_row, n_col};
+    ctranslate2::StorageView* sv = new ctranslate2::StorageView(shape, 0, device);
+    int size = n_row * n_col;
+    if (size > 0) {
+        int* data = new int[n_row * n_col];
+        int i = 0;
+        for (const auto & v: buffer){
+            for (const auto & value: v){
+                data[i] = value;
+                i += 1;
+            }
+        }
+        sv->copy_from(data,size,ctranslate2::Device::CPU);
+        delete data;
+    }
+    return sv;
+}
+
+
+
+
+
+
+
+
 template <typename T>
 py::list std_vector_to_py_list(const std::vector<T>& v) {
   py::list l;
@@ -27,23 +69,29 @@ py::list std_vector_to_py_list(const std::vector<std::string>& v) {
   return l;
 }
 
-std::vector<std::string> py_list_to_std_vector(const py::object& l) {
-  std::vector<std::string> v;
+template <class T>
+std::vector<T> py_list_to_std_vector(const py::object& l) {
+  std::vector<T> v;
   v.reserve(py::len(l));
   for (const auto& s : l)
-    v.emplace_back(s.cast<std::string>());
+    v.emplace_back(s.cast<T>());
   return v;
 }
 
-static std::vector<std::vector<std::string>> batch_to_vector(const py::object& l) {
-  std::vector<std::vector<std::string>> v;
+template <class T>
+static std::vector<std::vector<T>> batch_to_vector(const py::object& l) {
+  std::vector<std::vector<T>> v;
   if (l.is(py::none()))
     return v;
   v.reserve(py::len(l));
   for (const auto& handle : l)
-    v.emplace_back(py_list_to_std_vector(py::cast<py::object>(handle)));
+    v.emplace_back(py_list_to_std_vector<T>(py::cast<py::object>(handle)));
   return v;
 }
+
+
+
+
 
 class TranslatorWrapper
 {
@@ -60,6 +108,7 @@ public:
                                                         device,
                                                         device_index,
                                                         compute_type)) {
+    _device = ctranslate2::str_to_device(device);
   }
 
   py::tuple translate_file(const std::string& in_file,
@@ -123,8 +172,8 @@ public:
     options.return_attention = return_attention;
 
     std::vector<ctranslate2::TranslationResult> results;
-    auto future = _translator_pool.post(batch_to_vector(source),
-                                        batch_to_vector(target_prefix),
+    auto future = _translator_pool.post(batch_to_vector<std::string>(source),
+                                        batch_to_vector<std::string>(target_prefix),
                                         options);
 
     {
@@ -153,8 +202,77 @@ public:
     return py_results;
   }
 
+    py::list translate_batch_with_fsa_prefix(const py::object& source,
+                                             const py::object& emission_matrix,
+                                             const py::object& transition_matrix,
+                                             const py::object& length_matrix,
+                                             int init_state,
+                                             const py::object& target_prefix,size_t beam_size,
+                             size_t num_hypotheses,
+                             float length_penalty,
+                             size_t max_decoding_length,
+                             size_t min_decoding_length,
+                             bool use_vmap,
+                             bool return_attention,
+                             size_t sampling_topk,
+                             float sampling_temperature
+                             ) {
+        if (source.is(py::none()) || py::len(source) == 0)
+            return py::list();
+
+        auto options = ctranslate2::TranslationOptions();
+        options.beam_size = beam_size;
+        options.length_penalty = length_penalty;
+        options.sampling_topk = sampling_topk;
+        options.sampling_temperature = sampling_temperature;
+        options.max_decoding_length = max_decoding_length;
+        options.min_decoding_length = min_decoding_length;
+        options.num_hypotheses = num_hypotheses;
+        options.use_vmap = use_vmap;
+        options.return_attention = return_attention;
+
+        options.decode_with_fsa_prefix = true;
+
+        options.emission_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(batch_to_vector<int>(emission_matrix), _device));
+        options.transition_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(batch_to_vector<int>(transition_matrix), _device));
+        options.length_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(batch_to_vector<int>(length_matrix), _device));
+        options.init_state = init_state;
+
+        std::vector<ctranslate2::TranslationResult> results;
+        auto future = _translator_pool.post(batch_to_vector<std::string>(source),
+                                            batch_to_vector<std::string>(target_prefix),
+                                            options);
+
+        {
+            py::gil_scoped_release release;
+            results = future.get();
+        }
+
+        py::list py_results;
+        for (const auto& result : results) {
+            py::list batch;
+            for (size_t i = 0; i < result.num_hypotheses(); ++i) {
+                py::dict hyp;
+                hyp["score"] = result.scores()[i];
+                hyp["tokens"] = std_vector_to_py_list(result.hypotheses()[i]);
+                if (result.has_attention()) {
+                    py::list attn;
+                    for (const auto& attn_vector : result.attention()[i])
+                        attn.append(std_vector_to_py_list(attn_vector));
+                    hyp["attention"] = attn;
+                }
+                batch.append(hyp);
+            }
+            py_results.append(batch);
+        }
+
+        return py_results;
+    }
+
+
 private:
   ctranslate2::TranslatorPool _translator_pool;
+  ctranslate2::Device _device;
 };
 
 PYBIND11_MODULE(translator, m)
@@ -181,6 +299,22 @@ PYBIND11_MODULE(translator, m)
          py::arg("return_attention")=false,
          py::arg("sampling_topk")=1,
          py::arg("sampling_temperature")=1)
+    .def("translate_batch_with_fsa_prefix", &TranslatorWrapper::translate_batch_with_fsa_prefix,
+        py::arg("source"),
+        py::arg("transition_matrix"),
+        py::arg("emission_matrix"),
+        py::arg("length_matrix"),
+        py::arg("init_state"),
+        py::arg("target_prefix")=py::none(),
+        py::arg("beam_size")=4,
+        py::arg("num_hypotheses")=1,
+        py::arg("length_penalty")=0,
+        py::arg("max_decoding_length")=250,
+        py::arg("min_decoding_length")=1,
+        py::arg("use_vmap")=false,
+        py::arg("return_attention")=false,
+        py::arg("sampling_topk")=1,
+        py::arg("sampling_temperature")=1)
     .def("translate_file", &TranslatorWrapper::translate_file,
          py::arg("input_path"),
          py::arg("output_path"),

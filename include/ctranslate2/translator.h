@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <iostream>
 
 #include "models/model.h"
 #include "translation_result.h"
@@ -12,12 +13,18 @@ namespace ctranslate2 {
     size_t beam_size = 2;
     size_t num_hypotheses = 1;
     size_t max_decoding_length = 250;
-    size_t min_decoding_length = 1;
+    size_t min_decoding_length = 0;
     float length_penalty = 0;
     size_t sampling_topk = 1;
     float sampling_temperature = 1;
     bool use_vmap = false;
     bool return_attention = false;
+    bool decode_with_fsa_prefix = false;
+    std::shared_ptr<ctranslate2::StorageView> length_matrix;
+    std::shared_ptr<ctranslate2::StorageView> emission_matrix;
+    std::shared_ptr<ctranslate2::StorageView> transition_matrix;
+    int init_state = 0;
+
   };
 
   // This class holds all information required to translate from a model. Copying
@@ -49,7 +56,13 @@ namespace ctranslate2 {
                                 const std::vector<std::vector<std::string>>& target_prefix,
                                 const TranslationOptions& options);
 
-    Device device() const;
+    std::vector<TranslationResult>
+    translate_batch_with_prefix_bk(const std::vector<std::vector<std::string>>& source,
+                                  const std::vector<std::vector<std::string>>& target_prefix,
+                                  const TranslationOptions& options);
+
+
+      Device device() const;
     int device_index() const;
     ComputeType compute_type() const;
 
@@ -62,9 +75,14 @@ namespace ctranslate2 {
     void make_graph();
 
     std::vector<TranslationResult>
-    run_translation(const std::vector<std::vector<std::string>>& source,
-                    const std::vector<std::vector<std::string>>& target_prefix,
-                    const TranslationOptions& options);
+    run_translation_bk(const std::vector<std::vector<std::string>>& source,
+                      const std::vector<std::vector<std::string>>& target_prefix,
+                      const TranslationOptions& options);
+
+      std::vector<TranslationResult>
+      run_translation(const std::vector<std::vector<std::string>>& source,
+                      const std::vector<std::vector<std::string>>& target_prefix,
+                      const TranslationOptions& options);
 
     std::shared_ptr<const models::Model> _model;
     std::unique_ptr<layers::Encoder> _encoder;

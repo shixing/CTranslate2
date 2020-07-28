@@ -1,0 +1,1 @@
+/tmp/tmp.GfIiisTddQ/cmake-build-debug-mtv-docker/cli/translate --model /data/export_ct2 --src /data/source.txt --tgt /data/target.txt --beam_size 1 --device cuda --prefix_info /data/prefix_info.txt

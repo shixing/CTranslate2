@@ -1,0 +1,2 @@
+sudo docker rm -f ctranslate2
+sudo docker run -d --name ctranslate2 --gpus 1 --entrypoint /usr/sbin/sshd -p 8022:22 -v /home/xingshi/download:/data -v /home/xingshi/CTranslate2:/ctranslate2 opennmt/ctranslate2:1.4.0-ubuntu-dev-gpu-16 -D

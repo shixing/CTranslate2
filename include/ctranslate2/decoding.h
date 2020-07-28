@@ -20,6 +20,25 @@ namespace ctranslate2 {
                      std::vector<std::vector<float>>& scores,
                      std::vector<std::vector<std::vector<std::vector<float>>>>* attention = nullptr);
 
+    void greedy_search_with_fsa_prefix(layers::Decoder& decoder,
+                       layers::DecoderState& state,
+                       const Sampler& sampler,
+                       StorageView& sample_from,
+                       StorageView& candidates,
+                       const StorageView& memory,
+                       const StorageView& memory_lengths,
+                       StorageView& emission_matrix,
+                       StorageView& transition_matrix,
+                       StorageView& length_matrix,
+                       int init_state,
+                       dim_t start_step,
+                       dim_t end_token,
+                       dim_t max_length,
+                       dim_t min_length,
+                       std::vector<std::vector<std::vector<size_t>>>& sampled_ids,
+                       std::vector<std::vector<float>>& scores,
+                       std::vector<std::vector<std::vector<std::vector<float>>>>* attention = nullptr);
+
   void beam_search(layers::Decoder& decoder,
                    layers::DecoderState& state,
                    const Sampler& sampler,
