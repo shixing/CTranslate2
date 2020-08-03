@@ -20,8 +20,9 @@ def main():
     with open('/data/source.txt', encoding = 'utf8') as f:
         line = f.readline()
     r = t.translate_batch([line.split()], beam_size = 1)
+
     print('With translate_batch')
-    print(r[0][0]['tokens'])
+    print(r)
 
     ms = load_matrix()
     em = ms[0]
@@ -29,16 +30,18 @@ def main():
     lm = ms[2]
     init_state = ms[3][0][0]
     r = t.translate_batch_with_fsa_prefix([line.split()], em, tm, lm, init_state, beam_size = 1)
-    print('With translate_batch_with_fsa_prefix')
-    print(r[0][0]['tokens'])
+    print('With translate_batch_with_fsa_prefix first time')
+    print(r)
 
-    print(ms)
+    r = t.translate_batch_with_fsa_prefix([line.split()], em, tm, lm, init_state, beam_size = 1)
+    print('With translate_batch_with_fsa_prefix second time')
+    print(r)
+
     em = []
     tm = []
     lm = []
     init_state = -2
     r = t.translate_batch_with_fsa_prefix([line.split()], em, tm, lm, init_state, beam_size = 1)
     print('With translate_batch_with_fsa_prefix, -2')
-    print(r[0][0]['tokens'])
-
+    print(r)
 main()

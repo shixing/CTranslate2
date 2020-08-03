@@ -1,6 +1,7 @@
 #include "ctranslate2/ops/topk.h"
 
 #include "../cuda/utils.h"
+#include <iostream>
 
 namespace ctranslate2 {
   namespace ops {
@@ -16,8 +17,10 @@ namespace ctranslate2 {
         const dim_t depth = x.dim(-1);
         const dim_t batch_size = x.size() / depth;
 
-        if (_first_depth == 0)
-          _first_depth = depth;
+        if (_first_depth == 0) {
+            _first_depth = depth;
+            _first_depth = 150;
+        }
 
         void* bindings[3] = {
           const_cast<float*>(x.data<float>()),
@@ -46,7 +49,8 @@ namespace ctranslate2 {
       void set_optimization_profile(nvinfer1::IOptimizationProfile* profile) override {
         // Optimize for the first seen depth which covers the standard use case
         // of running TopK over a static vocabulary size.
-        profile->setDimensions("x",
+          //std::cout << "final first_depth" << _first_depth << std::endl;
+          profile->setDimensions("x",
                                nvinfer1::OptProfileSelector::kMIN,
                                nvinfer1::Dims2(1, _first_depth));
         profile->setDimensions("x",

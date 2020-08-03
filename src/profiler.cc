@@ -105,6 +105,7 @@ namespace ctranslate2 {
         print_as_percentage(os, ratio_printed_so_far);
         os << ' ' << std::left << std::setw(longest_name) << name
            << ' ' << (time_in_scope_us / 1000) << "ms"
+           << ' ' << (time_in_scope_and_callees_us / 1000) << "ms"
            << std::endl;
       }
     }

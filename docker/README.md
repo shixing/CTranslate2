@@ -53,6 +53,7 @@ export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/home/ctranslate2/lib
 
 On your local machine
 ```bash
+pip uninstall ctranslate2
 cd python;
 python setup.py install
 ```

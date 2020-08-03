@@ -234,8 +234,8 @@ public:
         options.decode_with_fsa_prefix = true;
 
         options.emission_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(batch_to_vector<int>(emission_matrix), _device));
-        options.transition_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(batch_to_vector<int>(transition_matrix), _device));
-        options.length_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(batch_to_vector<int>(length_matrix), _device));
+        options.transition_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(batch_to_vector<int>(transition_matrix), ctranslate2::Device::CPU));
+        options.length_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(batch_to_vector<int>(length_matrix), ctranslate2::Device::CPU));
         options.init_state = init_state;
 
         std::vector<ctranslate2::TranslationResult> results;

@@ -68,7 +68,7 @@ namespace ctranslate2 {
   static void encourage_token(StorageView& log_probs, dim_t token) {
         DEVICE_DISPATCH(log_probs.device(),
                         primitives<D>::strided_fill(log_probs.data<float>() + token,
-                                                    static_cast<float>(1e10),
+                                                    static_cast<float>(0),
                                                     log_probs.dim(-1),
                                                     log_probs.dim(0)));
     }
@@ -475,6 +475,14 @@ namespace ctranslate2 {
         PROFILE("greedy_search_with_fsa_prefix");
         const dim_t max_step = start_step + max_length;
         Device device = memory.device();
+
+        /*
+        if (device == ctranslate2::Device::CPU)
+            std::cout << "device cpu" << std::endl;
+        else
+            std::cout << "device gpu" << std::endl;
+        */
+
         const dim_t batch_size = sample_from.dim(0);
         sample_from.reshape({batch_size, 1});
 
@@ -518,114 +526,118 @@ namespace ctranslate2 {
         StorageView emission_row_view(emission_matrix.dtype(), emission_matrix.device());
 
         int current_state = init_state;
+        int length = 0;
+        int *p_data = nullptr;
+        int best_id_fsa = 0;
+        int token_to_encourage = 0;
 
         for (dim_t step = start_step; step < max_step; ++step) {
-            decoder(step,
-                    sample_from.to(device),
-                    alive_memory,
-                    alive_memory_lengths,
-                    state,
-                    &logits,
-                    attention ? &attention_step_device : nullptr);
-            ops::LogSoftMax()(logits, log_probs);
+            {
+                PROFILE("decode+softmax");
+                decoder(step,
+                        sample_from.to(device),
+                        alive_memory,
+                        alive_memory_lengths,
+                        state,
+                        &logits,
+                        attention ? &attention_step_device : nullptr);
+                ops::LogSoftMax()(logits, log_probs);
+            }
 
-            // Penalize end_token, if configured.
-            if (step < min_length)
-                penalize_token(log_probs, end_token);
-
-            // int current_state = init_state.at<int>(0);
-
-            // std::cout<<"current_state "<< current_state << std::endl;
             if (current_state == -2){
                 // stop decoding
                 encourage_token(log_probs, end_token);
             } else if (current_state >= 0) {
-
                 if (log_probs_view.size() == 0) {
                     // init at the first time;
                     int vocab_size = log_probs.size();
-
                     log_probs_view.shallow_copy(log_probs);
                     log_probs_view.reshape({vocab_size});
-
                     log_probs_buffer.resize({vocab_size});
                     log_probs_buffer.fill((float)-1.0);
-
                 }
-                int length = length_matrix.scalar_at<int>({0, current_state});
-                int *p_data = emission_matrix.index<int>({current_state,0});
-                emission_row_view.view(p_data, {length});
-                log_probs_buffer.resize({length});
-                gather(log_probs_view, emission_row_view, log_probs_buffer);
-                sampler(log_probs_buffer, best_ids_fsa, best_probs_fsa);
-                int best_id_fsa = best_ids_fsa.scalar_at<int>({0,0});
-                int token_to_encourage = emission_row_view.scalar_at<int>({best_id_fsa});
-                encourage_token(log_probs, token_to_encourage);
-                current_state = transition_matrix.scalar_at<int>({current_state, best_id_fsa});
+                {
+                    PROFILE("fsa_total");
+                    length = length_matrix.scalar_at<int>({0, current_state});
+                    p_data = emission_matrix.index<int>({current_state, 0});
+                    emission_row_view.view(p_data, {length});
+                    log_probs_buffer.resize({length});
+                    {
+                        PROFILE("gather in fsa");
+                        gather(log_probs_view, emission_row_view, log_probs_buffer);
+                    }
 
-
-                //std::cout<<"emssion_matrix " << emission_matrix << std::endl;
-                //std::cout<<"length "<<length<< std::endl;
-                //std::cout<<"emission_row_view "<<emission_row_view<< std::endl;
-                //std::cout<<"log_probs" << log_probs << std::endl;
-                //std::cout<<"log_probs_view" << log_probs_view << std::endl;
-                //std::cout<<"log_probs_buffer" << log_probs_buffer << std::endl;
-                //std::cout<<"log_probs[0,0,17845] "<< log_probs.scalar_at<float>({0,0,17845}) << std::endl;
-                //std::cout<<"best_ids_fsa" << best_ids_fsa << std::endl;
-                //std::cout<<"best_probs_fsa" << best_probs_fsa << std::endl;
-                //std::cout<<"token_to_encourage " << token_to_encourage << std::endl;
-                //std::cout<<std::endl;
+                    {
+                        PROFILE("sampler in fsa");
+                        sampler(log_probs_buffer, best_ids_fsa, best_probs_fsa);
+                    }
+                    {
+                        PROFILE("encourage_token");
+                        best_id_fsa = best_ids_fsa.scalar_at<int>({0, 0});
+                        token_to_encourage = emission_row_view.scalar_at<int>({best_id_fsa});
+                        encourage_token(log_probs, token_to_encourage);
+                    }
+                    current_state = transition_matrix.scalar_at<int>({current_state, best_id_fsa});
+                }
             }
 
-            sampler(log_probs, best_ids, best_probs);
+            {
+                PROFILE("full_vocab_best");
+                sampler(log_probs, best_ids, best_probs);
+            }
+
             if (attention)
                 attention_step.copy_from(attention_step_device);
 
-            std::vector<bool> finished_batch(log_probs.dim(0), false);
-            bool one_finished = false;
-            dim_t count_alive = 0;
-            for (dim_t i = 0; i < log_probs.dim(0); ++i) {
-                int32_t true_id = best_ids.scalar_at<int32_t>({i});
-                if (!candidates.empty())
-                    true_id = candidates.scalar_at<int32_t>({true_id});
-                dim_t batch_id = batch_offset[i];
-                if (true_id == static_cast<int32_t>(end_token)) {
-                    finished[batch_id] = true;
-                    finished_batch[i] = true;
-                    one_finished = true;
-                } else {
-                    sample_from.at<int32_t>(i) = true_id;
-                    sampled_ids[batch_id][0].push_back(true_id);
-                    scores[batch_id][0] += best_probs.scalar_at<float>({i});
-                    ++count_alive;
-                    if (attention) {
-                        const auto* attn = attention_step.index<float>({i});
-                        (*attention)[batch_id][0].emplace_back(attn, attn + attention_step.dim(-1));
+            {
+                PROFILE("rest");
+                std::vector<bool> finished_batch(log_probs.dim(0), false);
+                bool one_finished = false;
+                dim_t count_alive = 0;
+                for (dim_t i = 0; i < log_probs.dim(0); ++i) {
+                    int32_t true_id = best_ids.scalar_at<int32_t>({i});
+                    if (!candidates.empty())
+                        true_id = candidates.scalar_at<int32_t>({true_id});
+                    dim_t batch_id = batch_offset[i];
+                    if (true_id == static_cast<int32_t>(end_token)) {
+                        finished[batch_id] = true;
+                        finished_batch[i] = true;
+                        one_finished = true;
+                    } else {
+                        sample_from.at<int32_t>(i) = true_id;
+                        sampled_ids[batch_id][0].push_back(true_id);
+                        scores[batch_id][0] += best_probs.scalar_at<float>({i});
+                        ++count_alive;
+                        if (attention) {
+                            const auto *attn = attention_step.index<float>({i});
+                            (*attention)[batch_id][0].emplace_back(attn, attn + attention_step.dim(-1));
+                        }
                     }
                 }
-            }
 
-            // No more sentences are alive, stop here.
-            if (count_alive == 0)
-                break;
+                // No more sentences are alive, stop here.
+                if (count_alive == 0)
+                    break;
 
-            // Remove finished sentences from the execution.
-            if (one_finished) {
-                alive.resize({count_alive});
-                size_t write_index = 0;
-                size_t read_index = 0;
-                for (; read_index < finished_batch.size(); ++read_index) {
-                    if (!finished_batch[read_index]) {
-                        batch_offset[write_index] = batch_offset[read_index];
-                        alive.at<int32_t>(write_index) = read_index;
-                        ++write_index;
+                // Remove finished sentences from the execution.
+                if (one_finished) {
+                    alive.resize({count_alive});
+                    size_t write_index = 0;
+                    size_t read_index = 0;
+                    for (; read_index < finished_batch.size(); ++read_index) {
+                        if (!finished_batch[read_index]) {
+                            batch_offset[write_index] = batch_offset[read_index];
+                            alive.at<int32_t>(write_index) = read_index;
+                            ++write_index;
+                        }
                     }
+                    gather(sample_from, alive);
+                    auto alive_device = alive.to(device);
+                    decoder.gather_state(state, alive_device);
+                    gather(alive_memory, alive_device);
+                    gather(alive_memory_lengths, alive_device);
                 }
-                gather(sample_from, alive);
-                auto alive_device = alive.to(device);
-                decoder.gather_state(state, alive_device);
-                gather(alive_memory, alive_device);
-                gather(alive_memory_lengths, alive_device);
+                //std::cout<<"score " << scores[0][0] << std::endl;
             }
         }
     }

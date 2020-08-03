@@ -177,8 +177,8 @@ int main(int argc, char *argv[]) {
         options.decode_with_fsa_prefix = true;
         auto device = model->device();
         options.emission_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(buffers[0], device));
-        options.transition_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(buffers[1], device));
-        options.length_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(buffers[2], device));
+        options.transition_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(buffers[1], ctranslate2::Device::CPU));
+        options.length_matrix = std::shared_ptr<ctranslate2::StorageView>(buffer_to_storage_view(buffers[2], ctranslate2::Device::CPU));
         options.init_state = buffers[3][0][0];
         /*
         std::cout << "options.decode_with_fsa_prefix " << options.decode_with_fsa_prefix << std::endl;
