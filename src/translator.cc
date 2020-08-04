@@ -509,6 +509,7 @@ namespace ctranslate2 {
         StorageView sample_from({batch_size}, static_cast<int32_t>(start_token));
         std::vector<std::vector<std::vector<size_t>>> sampled_ids;
         std::vector<std::vector<float>> scores;
+        std::vector<std::vector<int>> n_tokens;
         std::vector<std::vector<std::vector<std::vector<float>>>> attention;
         auto *attention_ptr = options.return_attention ? &attention : nullptr;
         auto state = decoder.initial_state();
@@ -548,6 +549,7 @@ namespace ctranslate2 {
                               options.min_decoding_length,
                               sampled_ids,
                               scores,
+                              n_tokens,
                               attention_ptr);
             else
                 greedy_search(decoder,
@@ -597,7 +599,10 @@ namespace ctranslate2 {
                     hypotheses[h].push_back(target_vocab.to_token(id));
             }
             const auto *attn = i < static_cast<dim_t>(attention.size()) ? &attention[i] : nullptr;
-            results.emplace_back(hypotheses, scores[i], attn);
+            if (n_tokens.size() > 0)
+                results.emplace_back(hypotheses, scores[i], n_tokens[i], attn);
+            else
+                results.emplace_back(hypotheses, scores[i], attn);
         }
 
         if (sorted_index.empty())

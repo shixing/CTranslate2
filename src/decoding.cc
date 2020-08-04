@@ -471,6 +471,7 @@ namespace ctranslate2 {
                        dim_t min_length,
                        std::vector<std::vector<std::vector<size_t>>>& sampled_ids,
                        std::vector<std::vector<float>>& scores,
+                       std::vector<std::vector<int>>& n_tokens,
                        std::vector<std::vector<std::vector<std::vector<float>>>>* attention) {
         PROFILE("greedy_search_with_fsa_prefix");
         const dim_t max_step = start_step + max_length;
@@ -490,6 +491,8 @@ namespace ctranslate2 {
         sampled_ids.resize(batch_size);
         scores.clear();
         scores.resize(batch_size);
+        n_tokens.clear();
+        n_tokens.resize(batch_size);
         if (attention) {
             attention->clear();
             attention->resize(batch_size);
@@ -513,6 +516,7 @@ namespace ctranslate2 {
             batch_offset[i] = i;
             sampled_ids[i].resize(1);
             scores[i].resize(1);
+            n_tokens[i].resize(1);
             if (attention)
                 (*attention)[i].resize(1);
         }
@@ -544,10 +548,13 @@ namespace ctranslate2 {
                 ops::LogSoftMax()(logits, log_probs);
             }
 
+            int inc_n_token = 1;
+
             if (current_state == -2){
                 // stop decoding
                 encourage_token(log_probs, end_token);
             } else if (current_state >= 0) {
+                inc_n_token = 0;
                 if (log_probs_view.size() == 0) {
                     // init at the first time;
                     int vocab_size = log_probs.size();
@@ -607,6 +614,7 @@ namespace ctranslate2 {
                         sample_from.at<int32_t>(i) = true_id;
                         sampled_ids[batch_id][0].push_back(true_id);
                         scores[batch_id][0] += best_probs.scalar_at<float>({i});
+                        n_tokens[batch_id][0] += inc_n_token;
                         ++count_alive;
                         if (attention) {
                             const auto *attn = attention_step.index<float>({i});
@@ -614,6 +622,8 @@ namespace ctranslate2 {
                         }
                     }
                 }
+
+                //std::cout<<"score n_token token: " << scores[0][0] << " " << n_tokens[0][0] << " " << sampled_ids[0][0][sampled_ids[0][0].size()-1] << std::endl;
 
                 // No more sentences are alive, stop here.
                 if (count_alive == 0)
@@ -637,7 +647,7 @@ namespace ctranslate2 {
                     gather(alive_memory, alive_device);
                     gather(alive_memory_lengths, alive_device);
                 }
-                //std::cout<<"score " << scores[0][0] << std::endl;
+
             }
         }
     }

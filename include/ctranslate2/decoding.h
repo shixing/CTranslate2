@@ -37,6 +37,7 @@ namespace ctranslate2 {
                        dim_t min_length,
                        std::vector<std::vector<std::vector<size_t>>>& sampled_ids,
                        std::vector<std::vector<float>>& scores,
+                       std::vector<std::vector<int>>& n_tokens,
                        std::vector<std::vector<std::vector<std::vector<float>>>>* attention = nullptr);
 
   void beam_search(layers::Decoder& decoder,

@@ -254,6 +254,7 @@ public:
             for (size_t i = 0; i < result.num_hypotheses(); ++i) {
                 py::dict hyp;
                 hyp["score"] = result.scores()[i];
+                hyp["n_suffix_token"] = result.n_tokens()[i];
                 hyp["tokens"] = std_vector_to_py_list(result.hypotheses()[i]);
                 if (result.has_attention()) {
                     py::list attn;
